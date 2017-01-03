@@ -1,0 +1,377 @@
+<html>
+<body>
+<pre>
+Exceptions and Continuations
+----------------------------
+
+In this class, we will continue to discuss some advanced control
+structures, namely exceptions and continuations, by scaling our
+language. First, we start by studying carefully a trivial language
+to set up the tools we'll use next.
+
+The syntax for this trivial expression language is:
+
+  v -> n
+  e -> v | e+e
+
+with only integer literals and additions which deserves no further
+explanation.
+
+And we can give it an operational semantics in a small-step style
+following the book (structural operational semantics, or SOS):
+     
+      e1 -> e1'
+----------------------(E1)
+  e1+e2 -> e1'+e2
+
+      e2 -> e2'
+----------------------(E2)
+  v1+e2  -> v1+e2'
+
+----------------------(E3)
+  v1+v2  -> v            (where v=v1+v2)
+
+note that both rules E1 and E2 are standard search rules,
+and the rule E3 is the \beta rule which performs the real
+evaluation.
+
+Of course, it's easy to design a type system for this small
+language, I leave this as an exercise.
+
+We can give it a straightforward implementation, with SML
+code like:
+
+datatype e
+  = Num of int
+  | Add of e*e
+
+fun eval e = 
+    case e
+      of Add (Num i, Num j) => Num (i+j)
+       | Add (Num i, e2) => Add (Num i, eval e2)
+       | Add (e1, e2) => Add (eval e1, e2)
+
+though this code is correct, it's rather inefficient, for it will
+repeatedly construct subexpressions which has nothing to do
+with the current evalutions, in other words, it will duplicate
+the evaluation context. To see the problem, you can try what
+will happen when evaluating a compound expression like:
+
+  v1+v2+v3+...+vn.
+
+To cure this problem, we can use a lazy evaluation strategy by
+using an auxilary stack to cache the future evalutions. To
+achieve this, let's define the stack as follows: first, I give
+here the definition of the stack frame F
+
+  F -> []+e | v+[]
+
+intuitively, a stack frame F is just an expression with a hole []
+in it, that is, to obtain a complete expression, we can apply F to
+an expression e
+  
+  F[e]
+
+which looks very much like a function application. The intended
+use for the frame F is to record where we are evaluating a compound
+expression, and note the value v specifies a left-to-right evaluation
+order.
+
+Given the definition of frames, the stack S is simply a
+list of frames:
+
+  S -> . | F::S
+
+where I use the notation . to stand for an empty stack and :: to
+stand for stack pushing with the frame F as the new stack top
+element. The stack is normally called a control stack.
+
+How to connect the control stack S with the operational
+semantics, the basic idea is to cache future computation in
+the stack. For this purpose, we can design
+an abstract machine M with the following configuration:
+
+  M = (S, e)
+
+that is, this machine M is a pair consisting of a control
+stack S and an expression e being evaluated. With this machine
+model, the operational semantics rules take the following form:
+
+ (S, e) -> (S', e')
+
+that is, we start with an initial control stack S and an
+expression e, evaluates to a new control stack S' and a new
+expression e' (which will be further evaluated).
+
+Here are the rules for the operational semantics, in a small-step
+style:
+
+-------------------------------------(E4)
+  (S, v1+v2) -> (S, v)                     (where v=v1+v2)
+
+-------------------------------------(E5)
+  (F::S, v) -> (S, F[v])
+  
+-------------------------------------(E6)
+  (S, e1+e2) -> ([]+e2::S, e1)
+
+-------------------------------------(E7)
+  (S, v1+e2) -> (v1+[]::S, e2)
+
+Basically, rule E4 is the \beta evaluation rule, and rule
+E5 pops a frame F from the control stack S and applies it
+to the current value v. Thus, F[v] will be the candidate
+for the next round of evaluation. 
+
+Both the rule E6 and E7 are search rules, as above. 
+
+The intial configuration for this abstract machine is
+  
+  (., e)
+
+whereas the final configuration is
+
+  (., v)
+
+where v is the evaluation result for e.
+
+I encourage you to do some exercises to make sure you understand
+all the rules before continuing.
+
+The next question is how to implement these rules? The key job
+here is to encode frames and control stacks. At a first glance,
+we can encode them as a sum type:
+
+datatype frame
+  = LeftAdd of e         (* []+e *)
+  | RightAdd of v        (* v+[] *)
+
+type stack = frame list
+
+that is, to define a frame F, we have one dedicated constructor
+for each possible pisitions of the hole. A control stack is just
+a list of frames. However, this strategy has one serious drawback,
+for frame application F[v], we have to perform case analysis
+followed by constructor applications, this will become annoying
+when the possible pisitions of the hole increase.
+
+We can use an alternative solution which we have used to encode the
+lambda calculus: higher-order functions. Here is the definition:
+
+  type frame = e -> e
+
+the key idea here is that each frame can be treated as a converter
+from an expression to another expression. (Note that the first e
+should be value, but I choose to write e here to make
+function composition easier, we'll come back to this topic later in
+this lecture.) Nevertheless to say, the key advantage is that we can
+avoid case analysis, but use a simple function call instead. I leave the
+implementation details as programming assignments.
+
+--------------------------------------------------
+
+With the control stack, now I extend the language with exceptions:
+
+v -> n
+e -> v | e+e | throw | try e catch e
+
+the intended meaning of newly added constructs are:
+  * throw: to throw some nameless expcetion without carrying any
+           values; and 
+  * try e1 catch e2: first evaluates e1, if e1 does not throw,
+                     take e1's value as the returned value. If e1
+                     does throw, then the evaluation of e1 aborts,
+                     and starts to evaluates e2.
+
+It's wirth recalling that "throw" is dynamically scoped.
+
+Before giving the operational semantics, first let's design a type
+system, the key idea is that "throw" should be of arbitary type so
+that it can appear in any expressions. With
+this in mind, we have the following types defintions:
+
+  T -> Int | Any
+
+and typing rules:
+
+------------------------------(T-Int)
+ |- n: Int
+
+ |- e1: Int        |- e2: Int
+------------------------------(T-Add)
+ |- e1+e2: Int
+
+------------------------------(T-Throw)
+ |- throw: Any
+
+ |- e1: T         |- e2: T
+------------------------------(T-Try)
+ |- try e1 catch e2: T
+
+from the implementation point of view, the "Any" type should be
+equal to any other type.
+
+Now, let's turn to the operational semantics, we first extend
+the definition of frames with the syntactic struct for "try":
+
+  F -> []+e | v+[] | try [] catch e
+
+which makes it clear that the hole can only appear in the try
+part of the try-catch expression.
+
+Now we formalize the operational semantics rules (with the only
+newly added rule shown here),
+
+----------------------------------------------------(E-Try)
+ (S, try e1 catch e2) -> (try [] catch e2::S, e1)
+
+----------------------------------------------------(E-Throw)
+ (S1@((try [] catch e2)::S2)), throw) -> (S2, e2)               (S1 does not contain a try-catch)
+
+the E-Try rule simply installs a new frame onto the control
+stack S. The E-Throw rule is much more interesting: it will
+crawl down the control stack S and look for the first try-catch
+hole in the control stack and evaluate its catch subexpression.
+(You can think what will happen if there is NO such try-catch in
+the control stack S.) Traditionally, this technique is called
+stack unwinding in compiler literature. 
+
+An expcetion may take values, to reflect this, I modify the
+language definition to the following one:
+  
+  v -> n
+  e -> v | e+e | throw e | try e catch e
+
+note that now the "throw" takes an expression as argument e:
+the exception. Let's first consider the typing rules, in order
+to type the "throw" expression, we can dedicate a special
+type symbol "Exn", that is, the current type definitions are:
+
+  T -> Int | Any | Exn
+
+The typing rules must take care for the expression associated
+with "throw":
+
+  |- e: Exn
+--------------------------------(T-Throw)
+  |- throw e: Any
+
+  |- e1: T    |- e2: Exn->T
+--------------------------------(T-Try)
+  |- try e1 catch e2: T
+
+the T-Try specifies clearly that the expression e2 should of
+function type Exn->T which absorbs the exception values.
+
+It's not hard to give operational semantics to this language,
+I leave it as an exercise.
+
+------------------------------------------------------------
+
+There is another point of view for the control stack, we can
+treat it as function compositions, that is:
+
+  F::S = F o S
+
+the key advantage of this view is that now the operational
+sematics rules become tail-recursions with functions as the
+second argument. For instance, the evaluation rules for
+addition now look like
+
+--------------------------------------------------
+  (S, e1+e2) -> ((\lambda x.x+e2) o S, e1)
+
+--------------------------------------------------
+  (S, v1+e2) -> ((\lambda x.v1+x) o S, e2)
+
+--------------------------------------------------
+  (S, v1+v2) -> (S, v)                              (where v=v1+v2)
+
+plus the normal stack application rule:
+
+--------------------------------------------------
+  (S, v) -> (., S(v))
+
+the function argument S is called a continuation.
+
+Continuations have many nice properties which make it a powerful
+programming abstraction, both from theoretial and practical point of
+views. But what makes a continuation interesting is that we can
+make it a 1-class object by introducing it into the language.
+Let's extend our language with continuations:
+
+  v -> n | cont(S)
+  e -> v 
+     | e+e 
+     | callcc (\lambda k.e) 
+     | appcc e e
+
+The callcc(\lambda k.e) expression marks the current continuation
+with k and passes it to e; and the expression appcc e1 e2 takes
+a continuation e1 and calls it with the argument e2. Also note
+that we have a new value cons(S), it's worth remarking that
+S is a captured control stack and is only shown in the evalution
+rules (as we'll see in the next) so we don't bother to define
+S in the surface syntax. Also note that in the standard literature
+on continuations, the appcc is often called "throw e1 e2",
+however, I prefer to use the current syntax in order to
+leave the latter syntax to exceptions.
+
+First, let's give the static semantics to continuations. Here
+is the type definitions:
+
+  T -> Int | Cont (T)
+  
+where Cont(T) is the type of some continuation. With this
+in mind, we give the typing rules (for continuation-related):
+
+  G |- S: T
+------------------------------------
+  G |- cont(S): Cont(T)
+
+  G, x: Cont(T) |- e: T
+------------------------------------
+  G |- callcc (\lambda x.e): T
+
+  G |- e1: Cont(T)     G |- e2: T
+------------------------------------
+  G |- appcc e1 e2: T
+
+And we can also extend the definition of frames:
+
+  F -> ... | appcc [] e2 | appcc v []
+
+and the operational semantics rules:
+
+
+------------------------------------------------------(E-Cont)
+  (S, callcc (\lambda x.e)) -> (S, [x|->cont(S)]e)
+
+
+------------------------------------------------------(E-Appcc1)
+  (S, appcc (cont(S')) v2) -> (S', v2)
+
+
+------------------------------------------------------(E-Appcc2)
+  (S, appcc v1 e2) -> (app v1 []::S, e2)
+
+
+------------------------------------------------------(E-Appcc3)
+  (S, appcc e1 e2) -> (appcc [] e2::S, e1)
+
+
+Essentially, callcc will duplicate and pass the current
+control stack to e, whereas appcc destroy the current stack
+and restore the saved old stack (thus transfer control
+to some alternate universe).
+
+The most appealing fact about continuations is that it
+serves as the functional counterpart of GOTO, using
+which advanced programming features can be built: non-local
+exit, generators, backtracking, coroutines, user-level
+thread, etc.
+
+
+</pre>
+</body>
+</html>

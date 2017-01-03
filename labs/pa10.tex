@@ -1,0 +1,474 @@
+\documentclass[]{article}
+
+\usepackage{amsmath}
+\usepackage{latexsym}
+\usepackage{styfiles/bcprules}
+\usepackage{color,framed}
+
+\newcommand{\algeq}{\Leftrightarrow}
+\newcommand{\avdash}{\rhd}
+\newcommand{\falsee}{\texttt{false}}
+\newcommand{\gd}{\Gamma;\Delta}
+\newcommand{\kto}{\Rightarrow}
+\newcommand{\lo}{\text{F}_\omega}
+\newcommand{\colorit}[1]{\colorbox{yellow}{$#1$}}
+\newcommand{\ptext}[1]{\textsl{#1}}
+\newcommand{\sep}{\texttt{ | }}
+\newcommand{\reduceto}{\Downarrow}
+\newcommand{\teq}{\equiv}
+\newcommand{\truee}{\texttt{true}}
+
+
+\begin{document}
+\title{Type Checking $\lo$}
+\author{Formal Methods, SSE of USTC}
+\date{Spring 2015}
+\maketitle
+
+In this assignment, you'll implement a type check for $\lo$, a
+formal system with polymorphic types and type operators.
+Generally speaking, type checking $\lo$ is not that harder
+than type checking $\lambda_\omega$, so we emphasize only the
+key difference between these two systems. And the difference
+parts are marked with \colorbox{yellow}{yellow color}.
+
+\section{The Syntax for $\lo$}
+The syntax for $\lo$ is presented in Figure \ref{fig-syntax},
+with two new syntactic forms for terms: type abstraction and
+type application. And there is a new constructor for polymorphic
+types.
+
+\begin{figure}[!ht]
+  $$
+  \begin{array}{lrcl}
+    \ptext{Terms} & t & \to & \truee \sep \falsee \sep {\texttt{if } t
+    \texttt{ then } t \texttt{ else } t} \sep x\\
+    & & \sep & \lambda x:c.t \sep t\;t \sep \colorit{\lambda\alpha::K.t}
+      \sep \colorit{t\;[c]}\\
+    \ptext{Constructors} & c & \to & \texttt{Bool} \sep \alpha \sep c\to c
+    \sep \Lambda\alpha::K.c \sep c\;c\sep \colorit{\forall \alpha::K.c}\\
+    \ptext{Kinds} & K & \to & \star \sep K \kto K\\
+  \end{array}
+  $$
+  \caption{Syntax for $\lo$}
+  \label{fig-syntax}
+\end{figure}
+
+
+
+\section{The Declarative Static Semantics for $\lo$}
+The static semantics for $\lo$ consists of three components: the typing
+rule for terms, the kinding rules for constructors and the equivalence
+rules for types.
+
+\subsection{The Typing Rules}
+In order to present the typing rules, we first present the definition
+of the typing environment $\Gamma$ and the kinding environment $\Delta$,
+in Figure \ref{fig-env}.
+
+\begin{figure}[!ht]
+  $$
+  \begin{array}{lrcl}
+    \ptext{Typing environment} & \Gamma & \to & \cdot \sep x:c, \Gamma\\
+    \ptext{Kinding environment} & \Delta & \to & \cdot \sep \alpha::K, \Delta\\
+  \end{array}
+  $$
+  \caption{Typing and kinding environments}
+  \label{fig-env}
+\end{figure}
+
+
+The typing rules make use of the following judgmental form
+$$
+\gd\vdash t: c,
+$$
+and the rules are given in Figure \ref{fig-dec-typing}. Only the
+\textsc{T-Eq} rule deserves further explanation. Essentially, this
+rules specifies that one can interchange a constructor $c_2$ when
+another constructor $c_1$ is inferable, as long as these two constructors
+are equivalent $c_1\teq c_2$, the equivalence relation $\teq$ will be
+discussed shortly.
+
+So, these typing rules are not syntax-directed and thus can not be
+used to direct the type checking.
+
+\begin{figure}[!ht]
+\boxed{\Gamma;\Delta\vdash t:c}
+
+\infrule[T-True]
+  {}
+  {\gd\vdash \truee:\texttt{Bool}}
+
+\infrule[T-False]
+  {}
+  {\gd\vdash \falsee:\texttt{Bool}}
+
+\infrule[T-If]
+  {\gd \vdash t_1:\texttt{Bool} \andalso \gd\vdash t_2:c\andalso\gd\vdash t_3:c}
+  {\gd\vdash \texttt{if }t_1\texttt{ then } t_2 \texttt{ else } t_3:c}
+
+\infrule[T-Var]
+  {x:c\in \Gamma}
+  {\gd\vdash x:c}
+
+\infrule[T-Abs]
+  {\Delta\vdash c::\star \andalso \Gamma,x:c;\Delta\vdash t:c'}
+  {\gd\vdash \lambda x:c.t:c\to c'}
+
+\infrule[T-App]
+  {\gd\vdash t_1:c_1\to c_2\andalso \gd\vdash t_2:c_1}
+  {\gd\vdash t_1\;t_2:c_2}
+\definecolor{shadecolor}{rgb}{1,1,0}
+\begin{shaded}
+\infrule[T-TyAbs]
+  {\Gamma;\Delta, \alpha::K\vdash t:c}
+  {\gd\vdash \lambda \alpha::K.t:\forall \alpha::K.c}
+\end{shaded}
+\begin{shaded}
+\infrule[T-TyApp]
+  {\gd\vdash t:\forall \alpha::K.c' \andalso \Delta\vdash c::K}
+  {\gd\vdash t\;[c]:[\alpha\mapsto c]c'}
+\end{shaded}
+
+\infrule[T-Eq]
+  {\gd\vdash t:c_1\andalso \vdash c_1\teq c_2\andalso \Delta\vdash c_2::\star}
+  {\gd\vdash t:c_2}
+
+  \caption{Typing rules for $\lo$}
+  \label{fig-dec-typing}
+\end{figure}
+
+\subsection{The Kinding Rules}
+The kinding rule specifies the conditions under which a constructor
+is legal. These rules take the following judgmental form:
+$$
+\Delta\vdash c::K
+$$
+and consists of the rules in Figure \ref{fig-dec-kinding}.
+
+\begin{figure}[!ht]
+\boxed{\Delta\vdash c::K}
+\infrule[K-TyBool]
+  {}
+  {\Delta\vdash \texttt{Bool}:: \star}
+
+\infrule[K-TyArrow]
+  {\Delta\vdash c_1::\star \andalso \Delta\vdash c_2::\star}
+  {\Delta\vdash c_1\to c_2:: \star}
+\definecolor{shadecolor}{rgb}{1,1,0}
+\begin{shaded}
+\infrule[K-TyForall]
+  {\Delta, \alpha::K\vdash c::\star}
+  {\Delta\vdash \forall\alpha:: K.c::\star}
+\end{shaded}
+\infrule[K-TyVar]
+  {\alpha::K\in\Delta}
+  {\Delta\vdash \alpha:: K}
+
+\infrule[K-TyAbs]
+  {\Delta, \alpha::K_1\vdash c::K_2}
+  {\Delta\vdash \Lambda \alpha:: K.c::K_1\kto K_2}
+
+\infrule[K-TyApp]
+  {\Delta\vdash c_1::K_1\kto K_2\andalso \Delta\vdash c_2::K_1}
+  {\Delta\vdash c_1\;c_2:: K_2}
+
+  \caption{Kinding rules for $\lo$}
+  \label{fig-dec-kinding}
+\end{figure}
+It's nice to see that the set of kinding rules are syntax-directed.
+
+\subsection{The Definitional Equivalence Rules}
+The equivalence relation $\teq$ are defined on any two constructors
+using this judgment form:
+$$
+\vdash c_1\teq c_2
+$$
+and the rules are given in Figure \ref{fig-dec-eq}.
+
+\begin{figure}[!ht]
+\boxed{\vdash c_1\teq c_2}
+\infrule[E-Refl]
+  {}
+  {\vdash c \teq c}
+
+\infrule[E-Symm]
+  {\vdash c_1 \teq c_2}
+  {\vdash c_2 \teq c_1}
+
+\infrule[E-Trans]
+  {\vdash c_1 \teq c_2 \andalso c_2 \teq c_3}
+  {\vdash c_1\teq c_3}
+
+\infrule[E-Arrow]
+  {\vdash c_1\teq c_3 \andalso c_2 \teq c_4}
+  {\vdash c_1\to c_2 \teq c_3 \to c_4}
+\definecolor{shadecolor}{rgb}{1,1,0}
+\begin{shaded}
+\infrule[E-Forall]
+  {\vdash c_1\teq c_2}
+  {\vdash \forall\alpha::K.c_1\teq \forall\alpha::K.c_2}
+\end{shaded}
+
+\infrule[E-TyAbs]
+  {\vdash c_1\teq c_2}
+  {\vdash \Lambda \alpha::K.c_1 \teq \Lambda \alpha::K.c_2}
+
+\infrule[E-TyApp]
+  {\vdash c_1\teq c_3 \andalso c_2 \teq c_4}
+  {\vdash c_1\; c_2 \teq c_3\;c_4}
+
+\infrule[E-Beta]
+  {}
+  {\vdash (\Lambda \alpha::K.c)c' \teq [\alpha\mapsto c' ]c}
+
+  \caption{Definitional Equivalence Rules for $\lo$}
+  \label{fig-dec-eq}
+\end{figure}
+It's also worth remarking that these definitional equivalence
+relation is not syntax-directed. For instance, when one need
+to compare two constructors $c_1$ and $c_2$, a feasible way is
+to use the \textsc{T-Beta} rule to try to reduce any one constructor,
+but another way is to use the \textsc{E-Trans} rule, which involves
+guess a third constructor $c_3$. For this reason, in the next, we
+would develop a theory of algorithmic equivalence checking.
+
+\section{The Algorithmic Static Semantics for $\lo$}
+The key step in designing an algorithmic static semantics is to
+make the typing rules and definitional equivalence rules
+syntax-directed.
+
+The key idea to make the typing rules syntax-directed is to
+eliminate the \textsc{T-Eq} rule and move the constructor equivalence
+comparision to the necessary points in other typing rules. In this
+sense, we are providing equivalence coercion in typing rules
+directly. A close look at the typing rules from Figure \ref{fig-dec-typing} reveals that both the \textsc{T-If} rule and the \textsc{T-App}
+rule need this coercion: for the former, one need to check that
+the type of $t_1$ is really the constructor \texttt{Bool}, and
+that the type of $t_2$ and $t_3$ are really equivalent; and for
+the latter, one need to check that the term $t_1$ is really of
+an arrow type $c_1\to c_2$ and that $t_2$'s type is really equivalent
+to $c_1$.
+
+With these in mind, we present the algorithmic typing
+rule via this judgmental form:
+$$
+\gd\avdash t:c
+$$
+and the typing rules in F
+
+
+\begin{figure}[!ht]
+\boxed{\gd\avdash t:c}
+
+\infrule[T-True]
+  {}
+  {\gd\avdash \truee:\texttt{Bool}}
+
+\infrule[T-False]
+  {}
+  {\gd\avdash \falsee:\texttt{Bool}}
+
+\infrule[T-If]
+  {\gd \vdash t_1:c_1\andalso \Gamma\avdash c_1\reduceto \texttt{Bool}\andalso \gd\vdash t_2:c_2\andalso\gd\vdash t_3:c_3\\ \Delta\avdash c_2\algeq c_3::\star}
+  {\gd\vdash \texttt{if }t_1\texttt{ then } t_2 \texttt{ else } t_3:c_2}
+
+\infrule[T-Var]
+  {x:c\in \Gamma}
+  {\gd\avdash x:c}
+
+\infrule[T-Abs]
+  {\Delta\avdash c::\star \andalso \Gamma,x:c;\Delta\avdash t:c'}
+  {\gd\avdash \lambda x:c.t:c\to c'}
+
+\infrule[T-App]
+  {\gd\vdash t_1:c_1\andalso \Delta\avdash c_1\reduceto c_2\to c_3 \andalso \gd\avdash t_2:c_4\\ \Delta\avdash c_2\algeq c_4::\star}
+  {\gd\vdash t_1\;t_2:c_3}
+\definecolor{shadecolor}{rgb}{1,1,0}
+\begin{shaded}
+\infrule[T-TyAbs]
+  {\Gamma;\Delta,\alpha::K \avdash t:c}
+  {\gd\avdash \lambda \alpha::K .t:\forall\alpha::K.c}
+\end{shaded}
+\begin{shaded}
+\infrule[T-TyApp]
+  {\gd\vdash t:c\andalso \Delta\avdash c\reduceto \forall\alpha::K.c'
+      \andalso \Delta\avdash c''::K}
+  {\gd\vdash t\;[c'']:[\alpha\mapsto c'' ]c'}
+\end{shaded}
+
+  \caption{Algorithmic Typing rules for $\lo$}
+  \label{fig-alg-typing}
+\end{figure}
+
+We make use of two new judgmental forms:
+$$
+\Delta\avdash c_1\reduceto c_2
+$$
+and
+$$
+ \Delta\avdash c_1\algeq c_2::K
+$$
+the former one specifies that the constructor $c$ can reduce to
+another constructor $c'$, and the latter one specifies that the
+two constructors $c$ and $c'$ are equivalent algorithmically at
+the kind $K$.
+
+The rules for the former judgmental form is given in Figure
+\ref{fig-alg-reduction}. The key idea is that the $\beta$-
+reduction rule is applied repeatedly, until there is no
+constructor application exists, unless the application is to
+a constructor variable $\alpha$. Another subtle point here is
+that both the constructors $c$ and $c'$ are of kind $\star$, and
+this kind is implicit in the reduction rule.
+
+\begin{figure}[!ht]
+\boxed{\Delta\avdash c_1\reduceto c_2}
+
+\infrule[R-Bool]
+  {}
+  {\Delta\avdash \texttt{Bool}\reduceto \texttt{Bool}}
+
+\infrule[R-Arrow]
+  {}
+  {\Delta\avdash c_1 \to c_2\reduceto c_1\to c_2 }
+\definecolor{shadecolor}{rgb}{1,1,0}
+\begin{shaded}
+\infrule[R-Forall]
+  {}
+  {\Delta\avdash \forall\alpha ::K. c\reduceto\forall\alpha ::K.c}
+\end{shaded}
+\infrule[R-TyVar]
+  {}
+  {\Delta\vdash \alpha \reduceto \alpha}
+
+\infrule[R-TyAbs]
+  {}
+  {\Delta\avdash \Lambda \alpha::K.c\reduceto \Lambda \alpha::K.c}
+
+\infrule[R-App1]
+  {\Delta\avdash c_1 \reduceto (\Lambda\alpha ::K.c)
+\andalso [\alpha\mapsto c_2]c\reduceto c'}
+  {\Delta\avdash c_1\; c_2\reduceto c'}
+
+\infrule[R-App2]
+  {\Delta\avdash c_1\reduceto\alpha}
+  {\Delta\avdash c_1\; c_2 \reduceto \alpha\;c_2}
+
+  \caption{Reduction rules for Constructors}
+  \label{fig-alg-reduction}
+\end{figure}
+
+The algorithmic equivalence checking rules are given in Figure
+\ref{fig-alg-equiv}.
+
+\newcommand{\streq}{\leftrightarrow}
+
+\begin{figure}[!ht]
+\boxed{\Delta\avdash c_1\algeq c_2::K}
+
+\infrule[E-KStar]
+  {\Delta\avdash c_1\reduceto c_1' \andalso \Delta\avdash c_2\reduceto c_2'
+\andalso \Delta \avdash c_1'\streq c_2'}
+  {\Delta\avdash c_1\algeq c_2::\star}
+
+\infrule[E-KArrow]
+  {\Delta, \alpha::K_1 \avdash c_1\;\alpha \algeq c_2\;\alpha::K_2}
+  {\Delta\avdash c_1 \algeq c_2::K_1\kto K_2}
+
+  \caption{Algorithmic Equivalence Rules for Constructors}
+  \label{fig-alg-equiv}
+\end{figure}
+
+Essentially, these two rules will first push down constructors
+to a normal form of kind $\star$ (if they are not, we first
+perform $\eta$-reduction. And then we normalize these normal
+forms by the \textsc{E-Star} rule and compare $c_1'$ and $C_2'$
+structurally.
+
+This gives us the next judgmental form:
+$$
+\Delta\avdash c_1\streq c_2
+$$
+which will compare two constructors $c_1$ and $c_2$ for structural
+equivalence. The rules for this judgmental form are given in
+Figure \ref{fig-str-equiv}.
+
+\begin{figure}[!ht]
+\boxed{\Delta\avdash c_1\streq c_2}
+
+\infrule[S-Bool]
+  {}
+  {\Delta\avdash \texttt{Bool}\streq \texttt{Bool}}
+
+\infrule[S-Arrow]
+  {\Delta\avdash c_1 \algeq c_3::\star\andalso \Delta\avdash c_2\algeq c_4::\star}
+  {\Delta\avdash c_1 \to c_2\streq c_3\to c_4}
+\definecolor{shadecolor}{rgb}{1,1,0}
+\begin{shaded}
+\infrule[S-Forall]
+  {\Delta\avdash c_1 \algeq c_2::\star}
+  {\Delta\avdash \forall\alpha::K.c_1\streq\forall\alpha::K.c_2}
+\end{shaded}
+
+\infrule[S-TyVar]
+  {}
+  {\Delta\avdash \alpha\streq \alpha}
+
+\infrule[S-TyApp]
+  {\Delta\avdash \alpha::K_1\kto \star \andalso \Delta\avdash c_1 \algeq c_2::K_1}
+  {\Delta\avdash \alpha\; c_1\streq \alpha\; c_2}
+
+  \caption{Structural Equivalence Rules for Constructors}
+  \label{fig-str-equiv}
+\end{figure}
+
+\section{The Implementation}
+Let's summarize, in Figure \ref{fig-table-judgments}, all judgmental
+forms to type checking $\lo$. Especially, we list the input, output
+and an interpretation of all judgmental forms. Note that in the third
+and fifth judgments, the kind is always $\star$ and thus are implicit.
+
+\begin{figure}[!ht]
+\begin{tabular}{|c|c|c|l|}
+  \hline
+  The judgment & Input & Output & Interpretation \\
+  \hline
+  $\gd\avdash t:c$& $\Gamma, \Delta, t$& $c$ & Type checking a term $t$\\
+\hline
+  $\Delta \avdash c::K$& $\Delta, c$ & $K$ & Kind checking a constructor $c$\\
+\hline
+  $\Delta\avdash c_1\reduceto c_2$ & $\Delta, c_1$& $c_2$ & $\beta$-reduce
+a constructor $c_1$ \\
+\hline
+$\Delta\avdash c_1\algeq c_2::K$ & $\Delta, c_1, c_2, K$& boolean &
+algorithmic equivalence \\
+\hline
+$\Delta\avdash c_1\streq c_2$ & $\Delta, c_1, c_2$& boolean & structural
+equivalence \\
+\hline
+\end{tabular}
+\centering
+\caption{All Judgmental Forms}
+\label{fig-table-judgments}
+\end{figure}
+
+Finally, let remark that the syntactic forms in Figure \ref{fig-str-equiv}
+are of special interest, they have been evaluated to normal forms
+of such a shape: all head constructors have bee exposed, but not
+the underlying constructors. For instance, take a look at the
+\textsc{S-Arrow} rule, the underlying constructor $c_i$ for
+$1\le i \le 4$ are not normal forms can thus can be reduced
+further. Such kind of normal forms are called \emph{weak
+head normal forms} in the literatures.
+
+
+\end{document}
+
+
+
+
+
+
+
+

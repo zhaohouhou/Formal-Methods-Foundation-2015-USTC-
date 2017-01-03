@@ -1,0 +1,16 @@
+Propositional Logic
+===================
+
+* Syntax
+Here, we give a production rule-based syntax:
+  P ::= 
+        x
+     |  P /\ P
+     |  P => P
+     |  P \/ P
+     |  T
+     |  F
+ 
+* Hypothetical Judgment
+
+

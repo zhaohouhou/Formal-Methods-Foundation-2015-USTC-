@@ -1,0 +1,280 @@
+<html>
+<body>
+<pre>
+Existential Types
+-----------------
+
+In this lecture, we'll discuss the theory underpinnings for ADT
+or objects---existential types. ADTs are essential concepts for
+modern programming practice, which enable us to build various
+components of a complex software system separately, and link
+them together.
+
+For instance, suppose we want to build a "point" abstraction
+on two-dimension surface. Furthermore, suppose we only want
+to build "point" of integers. Here is a possible interface
+for this abstraction:
+  
+  signature POINT =
+  sig
+    type t
+
+    val create: int * int -> t
+    val fst: t -> int
+    val snd: t -> int
+  end
+
+essentially, this interface specifies that there is some type
+"t" to represent point type, and there are three operations:
+the first one "create" create a new point from two integers;
+while the "fst" and "snd" functions fetch the first and second
+components separately. We can give the interface various
+concrete implementations, for instance, we can implement
+with a pair:
+
+  structure PairPoint:> POINT =
+  struct
+    type t = int * int
+    
+    fun create (x: int, y: int): t = (x, y)
+    fun fst (t: t): int = #1 t
+    fun snd (t: t): int = #2 t
+  end
+
+or else we can implement it with an array with length 2:
+  
+  structure ArrayPoint:> POINT =
+  struct
+    type t = int array
+    
+    fun create (x: int, y: int): int array = 
+        let val arr = Array.array(2, 0)
+            val _ = Array.update (arr, 0, x)
+            val _ = Array.update (arr, 1, y)
+        in  arr
+        end
+    fun fst (arr: int array): int = Array.sub(arr, 0)
+    fun snd (arr: int array): int = Array.sub(arr, 1)
+  end
+
+obviously, there may be infinite many possible implementations.
+So, what's the type for the signature "POINT"? We can think that
+the signature "POINT" consists of a tuple of an unknown type "t"
+along with a group of operations on the type "t". With this
+idea, we can write this signature as:
+
+  \exists X.{create: int*int->X, fst:X->int, snd:X->int}
+
+or (equivalently, in the text's natation):
+
+  \exists {*X, {create:int*int->X, fst: X->int, snd:X->int}}
+
+in the next, I'll be using the former notation.
+
+Given the existential type definition, the concrete
+implmentation, such as the "PairPoint" or the "ArrayPoint"
+can be though of some packers to pack a concrete implementation
+type and its code. We can use the following syntax:
+
+  pack \exists.{T, e} as \exists.{X, T'}
+
+the idea here is that we can pack the concrete type T and the
+code e into an existential type \exists.{X, T'} where X is a
+type variable. Essentially, we are hiding the implementation
+type along with some type annotations in e's type. To make
+this point concrete, let's consider the "PairPoint" structure:
+
+  pack \exists.{int*int, {create=..., fst=..., snd=...}}
+    as \exists{X, {create:int*int->X, fst:X->int, snd:X->int}}
+
+it's worth remarking that the existential type is not unique,
+for instance, we can also write the following code for the 
+above abstraction:
+
+  pack \exists.{int*int, {create=..., fst=..., snd=...}}
+    as \exists{X, {create:int*int->int*int, fst:X->int, snd:X->int}}
+
+here, we are exposing the internal representation type.
+
+Now, let's pack the "ArrayPoint" structure into an existential
+type:
+
+  pack \exists.{int array, {create=..., fst=..., snd=...}}
+    as \exists{X, {create:int*int->X, fst:X->int, snd:X->int}}
+
+as this code shows, two different code can be packed into the
+same existential type.
+
+Let's write some client code to program upon the given "POINT"
+interface:
+
+  unpack {X, x} = pack \exists.{int*int, {create=..., fst=..., snd=...}}
+                  as \exists.{Y, {create:..., fst:..., snd:...}}
+  in x.fst(x.create (3, 4))
+
+the idea here is that we can unpack an existential value
+into two components: an abstract type variable X and a
+value v. Note that by keeping the type variable X abstract,
+we can protect the internal data from being accessed in
+illegal ways. For instance, the following code does NOT type
+check:
+
+  unpack {X, x} = pack \exists.{int*int, {create=..., fst=..., snd=...}}
+                  as \exists.{Y, {create:..., fst:..., snd:...}}
+  in #1 (x.create (3, 4))
+
+And it worth trying to substitute the "PairPoint" with
+"ArrayPoint", i.e.:
+
+  unpack {X, x} = pack \exists.{int array, {create=..., fst=..., snd=...}}
+                  as \exists.{Y, {create:..., fst:..., snd:...}}
+  in x.fst (x.create (3, 4))
+
+The question here is that whether or not the client may know
+which implementation we are using? Intuitively, the answer
+is NO, for the client does not rely on information specific
+to any concrete implementations. So we can abuse the freedom
+to substitute the current implementation, as long as they does
+implement that interface (existential type). This is often
+called a "representation independence".
+
+
+---------------------------------------
+
+We now give the formal definition for the system. The syntax
+consists of the new "pack" and "unpack" constructs:
+
+  T -> Bool | X | T->T | \exists.{X, T}
+  v -> true | false | \lambda x:T.e | pack \exists.{T, v} as T'
+  e -> v | if(e1, e2, e3) | x | e e
+     | pack \exists.{T, e} as T' | unpack {X, x}=e1 in e2
+
+In the type T, we have the type variable "X", and the existential
+type "\exists.{X, T}" (recall that in logic, it's often written
+as "\exists X.T").
+
+The value v contains the "pack" construct "pack \exists.{T, v} as T'",
+which packs a module value into an existential value. Note that
+the type T is concrete, while the type T' is abstract.
+
+The expression e now consists of introduce and elimination
+operations on existential type: "pack" and "unpack".
+
+In order to present the operational semantics rules, we define
+the evaluation context E as:
+
+  E -> [] | if(E, e2, e3) | E e | v E
+     | pack \exists.{T, E} as T' | unpack {X, x}=E in e2
+
+We define the operational semantics in term of the evaluation
+context:
+
+
+---------------------------------------------(E-IfTrue)
+  if(true, e2, e3) -> e2
+
+
+---------------------------------------------(E-IfFalse)
+  if(false, e2, e3) -> e3
+
+
+---------------------------------------------(E-App)
+  (\lambda x:T.e) v -> [x|->T]e
+
+
+--------------------------------------------------(E-Unpack)
+  unpack {X, x}=(pack \exists.{T, v} as T') in e
+                           ->[X|->T][x|->v]e
+
+The last rule E-Unpack deserves some explanation, it specifies
+that to unpack an existential value, we fetch its concrete
+type T and its value v, bind them to X and x separately which
+will be used in the body e.
+
+Let's study one example, consider the above client code on the
+"POINT" interface:
+
+  unpack {X, x} = pack \exists.{int*int, {create=..., fst=..., snd=...}}
+                  as \exists.{Y, {create:..., fst:..., snd:...}}
+  in (\lambda z:X.(x.fst z)) (x.create (3, 4))
+  -> [X|->int*int][x|->{create=..., fst=..., snd=...}] 
+               ((\lambda z:X.(z.fst)) (x.create (3, 4)))
+  -> [X|->int*int]((\lambda z:X.({create=..., fst=\lambda x:X.#1 x, snd=...}.fst z)) 
+          ({create=\lambda(x:int, y:int).(x, y), fst=..., snd=...}.create (3, 4))
+  -> (\lambda z:int*int.({create=..., fst=\lambda x:int*int.#1 x, snd=...}.fst z)
+          ({create=\lambda(x:int, y:int).(x, y), fst=..., snd=...}.create (3, 4))
+  -> (\lambda z:int*int.({create=..., fst=\lambda x:int*int.#1 x, snd=...}.fst z)) 
+          (\lambda(x:int, y:int).(x, y) (3, 4))
+  -> (\lambda z:int*int.({create=..., fst=\lambda x:int*int.#1 x, snd=...}.fst z)) (3, 4))
+  -> {create=..., fst=\lambda x:int*int.#1 x}.fst (3, 4)
+  -> (\lambda x:int*int.#1 x) (3, 4)
+  -> #1 (3, 4)
+  -> 3
+
+The type system for this formal system take the form of:
+
+  G; D |- e: T
+
+where D is a type variable environment, just as we have discussed
+before. I only present here the existential-related rules:
+
+  G; D |- e: [X|->T]T'
+--------------------------------------------------------------------(T-Pack)
+  G; D |- pack \exists.{T, e} as \exists.{X, T'}: \exitst.{X, T'}
+
+  G; D |- e1: \exists.{X, T1}     G,x:T1; D,X |- e2: T2
+--------------------------------------------------------------------(T-Unpack)
+  G; D |- unpack {X, x}=e1 in e2: T2
+
+The existential introduction rule T-Pack will abstract (hide)
+the concrete type T (as a type variable X). It's worthing
+remarking that the "as" clause is necessary because, generally
+speaking, the type checker has no way to tell how abstract the
+existential type should be, so it requires the programmer to
+offer some type annotations. To make this point concrete, let's
+look at the "PairPoint":
+
+  structure PairPoint =
+  struct
+    type t = int*int
+  
+    fun create (x, y): int*int = (x, y)
+    fun toPair (t): int*int = t
+  end
+
+suppose we add another function "toPair" to convert a "point"
+to a pair of integers. Without user-supplied annotations, the
+type checker may infer the following existential type for it:
+
+  \exists.{X, {create:int*int->X, toPair:X->X}}
+
+which, nevertheless to say, it too abstract.
+
+
+---------------------------------------
+A final word on the encoding of the existential types. A basic
+fact from mathematical logic is that we can encode existential
+quantifiers using universal quantifiers, as:
+
+  \exists X.T =~= \not (\forall X.(\not T))                (1)
+              =~= (\forall X.(T->FALSE))->FALSE            (2)
+         
+it's worth remarking that the final step (step 2) makes use of
+a basic equation from constructive logic:
+  
+  \not T = T -> FALSE
+
+we can rewrite formula (2) into:
+
+  \forall Y.(\forall X.(T->Y))-> Y
+
+which encode existential using universal types. Thus we can
+encode the two operations on existential types: pack and unpack.
+
+  pack \exists.{T, e} as \exist.{X, T'} ==>  \Lambda Y.\lambda f: \forall X.(T'->Y). f [T] e
+  unpack {X, x}=e1 in e2                ==>  e1 [T2] (\Lambda X. \lambda x:T1. e2)
+
+
+</pre>
+</body>
+</html>

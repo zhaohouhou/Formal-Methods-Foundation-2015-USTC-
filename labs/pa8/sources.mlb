@@ -1,0 +1,10 @@
+local
+        $(SML_LIB)/basis/basis.mlb
+        
+        system-f.sig
+        system-f.sml
+in              
+        signature SYSTEMF
+        structure SystemF
+end
+        

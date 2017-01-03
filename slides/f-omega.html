@@ -1,0 +1,329 @@
+<html>
+<body>
+<pre>
+F-omega
+-------
+
+In this lecture, we'll discuss F-omega, a system combined
+with polymorphic types and type operators. In theory,
+F-omega is very powerful, it can encode many high-level
+language features; and in practice, it's very useful, as
+it's widely used in many modern compilers (as intermediate
+representations).
+
+
+-------------------------
+
+First, we'll discuss a system called \lambda-omega, though a
+little simpler than F-omega, does demonstrate the key idea.
+
+Let's start by recalling the existential types we've discussed.
+For some interface like "POINT":
+  
+  signature POINT =
+  sig
+    type t
+
+    val create: int * int -> t
+    val fst: t -> int
+    val snd: t -> int
+  end
+
+we can abstract the type "t" and thus encode this interface
+with an existential type:
+
+  \exists {*X, {create:int*int->X, fst: X->int, snd:X->int}}
+
+Now, consider some container, say, a stack. The interface
+looks like:
+
+  signature STACK =
+  sig
+    type 'a stack
+
+    val push: 'a * 'a stack -> unit
+    val pop: 'a stack -> 'a
+  end
+
+where 'a is a type variable, and stack is a type operator:
+that is, it's not a type, instead, when given some concrete
+type, it will generate a specialized type, like
+
+  int stack
+
+This may not so strange to us, for many modern OO languages
+also offer some kinds of type operators (generics or templates).
+Consider this Java code:
+
+  class Stack&lt;X&gt; {...}
+
+or this C++ code:
+
+  template &lt;typename X&gt;
+  class Stack&lt;X&gt; {...}
+
+which also make use of type operators. Normally, to use these
+types, you must write the full type application, say Stack&lt;Integer&gt;,
+instead of the raw type name, say, Stack.
+
+This gives us the impression that we are doing some kind of 
+computation on the type level: type abstraction and type
+application. To formalize this notion, we define a formal
+system on type level.
+
+First define the syntax for type T:
+
+  T -> Bool | X | T->T | \Lambda X::K.T | T T
+
+we have the basic boolean type "Bool", the type variable "X"
+and the function type "T->T". And the type "\Lambda X::K.T"
+is a type abstraction and "T T" is a type application. Note
+the correspondence with the abstraction and application in
+the term level. In doing so, we must introduce the "type" of
+types, we call it a "kind", this is exactly the "K" symbol
+in the type abstraction "\Lambda X::K.T", whose definition is:
+
+  K -> * | K=>K
+
+that is, we have just two forms of kinds: a baisc kind "*"
+and a function kind "K=>K". The intuition here is that the
+kind "*" is used to give kind for all normal types; and the
+function kind "K=>K" is used to give kind for all kind
+abstraction. 
+
+Let's look at some kinding examples:
+
+  Bool:: *                             (1)
+  Bool->Bool:: *                       (2)
+  \Lambda X::*.X->Bool:: *=>*          (3)
+
+The kinding judgment (1) specifies that "Bool" has the kind
+"*"; the judgment (2) specifies that "Bool->Bool" also has
+the kind "*", for it's a function type. The judgment (3) is
+more interesting, it specifies that, when given a type variable
+"X" of kind "*", the type abstraction will return type "X->Bool",
+which is in turn of kind "*". However, not all type expressions
+are well-formed, consider a type application of (3):
+
+  (\Lambda X::*.X->Bool) (\Lambda X::*.X)
+
+which makes no sense, for the arguemnt has kind "*=>*", instead
+of "*". So, in the literature (and in the following), the
+terminology "constructor" is often used, but reserve the term
+"type" for well-formed constructors.
+
+Next, we'd like to given kinding rules for constructors. For
+this purpose, we introduce a kind context D:
+
+  D -> . | D, X::K
+
+that is, D maps any type variable to its kind, just as typing
+context maps term variable to its type. The kinding rules are:
+
+  
+-----------------------------------(K-Bool)
+  D |- Bool:: *
+
+  X::K \in D
+-----------------------------------(K-TypeVar)
+  D |- X:: K
+
+  D |- T1:: *       D |- T2:: *
+-----------------------------------(K-Arrow)
+  D |- T1->T2:: *
+
+  D, X::K |- T:: K'
+-----------------------------------(K-Abs)
+  D |- (\Lambda X::K.T):: K=>K'
+
+  D |- T1:: K1=>K2    D |- T2:: K1
+-----------------------------------(K-App)
+  D |- T1 T2:: K2
+
+These rules are very close to the term-level typing rules and
+deserves no further explanation.
+
+Nevertheless to say, the term-level typing rules become complex.
+The reason is that the notion for type equivalence is nontrivial
+in this language. Consider this example:
+
+  |- true: (\Lambda X::*.X) Bool
+
+this judgment holds just for that, intuitively, this equation holds:
+  
+  (\Lambda X::*.X) Bool =~= Bool
+
+To make this notion clear, we introduce a constructor equivalence
+relationship on two constructors T1 and T2:
+
+  T1 =~= T2
+
+the rules for this relation are:
+
+
+-----------------------------------------(Q-Reflexivity)
+  T =~= T
+
+  T =~= S
+-----------------------------------------(Q-Symmetry)
+  S =~= T
+
+  T =~= S      S =~= U
+-----------------------------------------(Q-Transivity)
+  T =~= U
+
+  S1 =~= T1    S2 =~= T2
+-----------------------------------------(Q-Arrow)
+  S1->S2 =~= T1->T2
+
+  S =~= T
+-----------------------------------------(Q-Abs)
+  \Lambda X::K1.S =~= \Lambda X::K1.T
+
+  S1 =~= T1   S2 =~= T2
+-----------------------------------------(Q-App)
+  S1 S2 =~= T1 T2
+
+
+-----------------------------------------(Q-Beta)
+  (\Lambda X::K1.T) T' =~= [X|->T']T
+
+
+-----------------------------------------(Q-Eta)
+  (\Lambda X::K1.T X) =~= T
+
+Essentially, this is a equational theory on constructors. It's
+worth remarking that these rules are definitional equivalence
+for it just define what equivalence is, but not how to check
+the equivalence does hold. In fact, these rules pose significant
+difficulties on the type checking, as we'll discuss shortly.
+
+The term language is of no difference:
+
+  e -> true | false | if(e1, e2, e3)
+     | x | \lambda x:T.e | e e
+
+The typing rule takes little difference:
+
+
+-----------------------------------------(T-True)
+  G; D |- true: Bool
+
+
+-----------------------------------------(T-False)
+  G; D |- false: Bool
+
+  G; D |- e1: Bool   G; D |- e2,3: T
+-----------------------------------------(T-If)
+  G; D |- if(e1, e2, e3): Bool
+
+  x:T \in G
+-----------------------------------------(T-Var)
+  G; D |- x: T
+
+  D |- T:: *       G, x:T; D |- e: T'
+-----------------------------------------(T-Abs)
+  G; D |- \lambda x:T.e: T->T'
+
+  G; D |- e1: T->T'   G; D |- e2: T
+-----------------------------------------(T-App)
+  G; D |- e1 e2: T'
+
+  G; D |- e: S        S =~= T
+-----------------------------------------(T-Eq)
+  G; D |- e: T
+
+Most rules are the same as the corresponding ones from the typed
+lambda calculus, except for the (T-Abs) rule, which will check
+that the contructor T is well-kinded, before entering it into
+the typing context G (a collary of this fact is that all constructors
+in G are indeed well-kinded, i.e., types). There is a new rule
+T-Eq, which specifies that if an expression e is of a type S, it
+can be of any type T, as long as the type T is definitional
+equivalent to its type S. This rule is very similar to the rule
+T-Sub as we discussed in the subtying system, and they pose similar
+difficulties to the type checking task, that is, the type checker
+is on longer syntax-directed---we can apply the T-Eq rule anywhere
+during type checking.
+
+We can adopt a similar strategy as we did for the study of the
+meta-theory for the subtyping relation, that is, we rewrite the rules
+to a syntax-directed one by pushing the type definitional equivalence
+checking to each "necessary site" and thus eliniminate the T-Eq rule.
+A close look at these rules reveals that the only way the T-Eq rule
+is significant is in the T-App rule, thus we rewrite that rule into
+the following one:
+
+
+  G; D |- e1: T1->T2   G; D |- e2: T      T1 =~= T
+-----------------------------------------------------(T-App')
+  G; D |- e1 e2: T'
+
+in the above rule, the only task is to check that T1=~=T. However,
+when we look at the rules for definitional equivalence =~=, we face
+the same problems: these rules are not syntax directed. One solution
+here is that we can normalize T and S in the definitional equivalence
+T=~=S, and check the structural equivalence of their results, this
+is precisely demonstrated by the following rule:
+
+  T ~~> T'   S ~~> S'    T' -~- S'
+------------------------------------------(T-EqNormal)
+  T =~= S
+
+essentially, the T-EqNormal rule will eliminate all top-most beta-redex
+and leave only non-application form. For instance, for
+
+  T = (\Lambda X::*.X)Bool
+  S = (\Lambda Y::*.Y)Bool
+
+we have:
+
+  T' ~~> Bool
+  S' ~~> Bool
+
+and thus we have the desired structural equivalence relation:
+
+  Bool -~- Bool
+
+However, this method has two main drawbacks: first, it can not deal
+with functions, for instance, for the following two types:
+
+  T = \Lambda X::*.X
+  S = \Lambda Y::*.Y
+
+though it's easy to decide that T should be equivalent to S, but
+it will force us to turn these terms into De Bruijn representations
+to state this fact formally. Second, if the abstraction is a
+variable, the application can not apply. For instance:
+
+  X (\Lambda X::*.X) Bool
+
+can not be evaluated further for X is a constructor variable.
+
+With all these in mind, we can elaborate the above idea into the
+following type equivalence checking algorithm:
+
+  (1) type check expressions, to obtain two constructors S and T;
+  (2) normalize the two contructors S and T, until both of them reach
+      the normal forms S' and T'. By normal form, in this sense: they
+      don't be of the form (\Lambda ...)T (but can be of the form "X T");
+      in other words, we eliminate all top-level \Lambda's; also note
+      that both S' and T' should be of kind *, from step (1);
+  (3) compare, algorithmically, S' and T' are equivalent (it should be
+      clear why this step is necessary next);
+  (4) compare, structurally, S' and T' are equivalent, sub-cases are:
+      (a) Bool
+      (b) X
+      (c) T1->T2
+      (d) \forall X::K1.T
+      (e) X T2
+      
+I leave the implementation details to the programming assignment.
+
+
+
+
+
+</pre>
+</body>
+</html>

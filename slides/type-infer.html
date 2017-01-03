@@ -1,0 +1,356 @@
+<html>
+<body>
+<pre>
+Type inference
+--------------
+
+In this lecture, we will talk about type inference, i.e, when
+type annotations are omitted from the specific programs, the
+compiler (type checker) can infer (re-construct) the necessary
+type informations, and thus guarantee the type safety of the
+program. Nevertheless to say, programmers can benefit
+a lot from this facility: their programs are type-safe even
+though they don't write down any type annotations, all the hard
+work are taken care by the type checker. This feature is
+available, to various degree, in almost all modern programming
+languages.
+
+To make our discussion concrete, let's first recall the typed
+lambda calculus with booleans. The syntax looks like:
+
+  T -> Bool | T->T
+  e -> true | false | if (e1, e2, e3)
+     | x | \lambda x:T.e | e e
+
+i.e., we have only one base type Bool. Here are the typing rules
+for this language:
+
+----------------------------------------(T-True)
+ G |- true: Bool
+
+----------------------------------------(T-False)
+ G |- false: Bool
+
+ G |- e1: Bool    G |- e2: T    G |- e3: T
+-------------------------------------------------(T-If)
+ G |- if (e1, e2, e3): T
+
+ x:T \in G
+-------------------------------------------------(T-Var)
+ G |- x: T
+
+ G, x:T |- e: T'
+-------------------------------------------------(T-Abs)
+ G |- \lambda x:T.e: T->T'
+
+ G |- e1: T -> T'      G |- e2: T
+-------------------------------------------------(T-App)
+ G |- e1 e2: T'
+
+These typing rules check and guarantee the type constraints during
+the type checking phase, for instance, the sub-derivation G|-e1: Bool
+in the T-If rule requires that one must check the return type of
+this recursive call to make sure it can return only the desired type. From
+the implementation point of view, we are guaranting the well-typed
+properties for every subexpression (sub-tree).
+
+Now, consider what happens if one want to omit all the type
+annotations from a given expression, that is, we are defining an
+untyped lambda calculus:
+  
+  e -> true | false | if (e1, e2, e3)
+     | \lambda x.e | e e
+
+however, I still want the language to be strongly-typed, for instance,
+the following expression:
+
+  \lambda x. if (x, true, false)
+
+is well-typed iff the type of the variable "x" is "Bool", but not, say
+"Bool->Bool". Let's look at the typing derivations for this specific
+expression to make it clear how this informal idea can be made formal:
+
+---------------------    -------------------------   ----------------------------
+ G, x:T |- x: T  ~{}      G, x:T |- true: Bool ~{}     G, x:T |- false: Bool ~{}
+------------------------------------------------------------------------------------
+ G, x: T |- if (x, true, false): Bool   ~{T=Bool, Bool=Bool}
+-------------------------------------------------------------------
+ G |- \lambda x. if (x, true, false): Bool  ~{T=Bool, Bool=Bool}
+
+some interesting points are worthing remarking here: first, as the
+lambda abstraction is untyped, so, we need to generate a fresh type
+variable for each lambda variable before entering it into the typing
+context; second, inteads of checking the typing constraint in place,
+we just generate and record these constraints with the hope that
+these constraints are indeed satisfiable. Note that these constraints
+are written in a set notation are are increasing monotonely. For
+instance, the final constraint set {T=Bool, Bool=Bool} is
+satisfiable by choosing T=Bool. Informally, we are postponing typing
+checking from tree walking phase to constraint solving phase.
+
+With this in mind, we define a new set of types:
+
+  T -> X | Bool | T->T
+
+note that the newly added type X is a type variable. And we can give
+the typing (along with constraint generation) rules:
+
+------------------------------------
+ G |- true: Bool ~{}
+
+------------------------------------
+ G |- false: Bool ~{}
+
+ G |- e1: T1 ~S1        G |- e2: T2 ~S2       G |- e3: T3 ~S3
+-------------------------------------------------------------------
+ G |- if (e1, e2, e3): T2 ~{T1=Bool, T2=T3}\/S1\/S2\/S3
+
+ x:T \in G
+---------------------------
+ G |- x: T ~{}
+
+ G, x:T |- e: T' ~S          (with T fresh)
+------------------------------------------------
+ G |- \lambda x.e: T->T'  ~S
+
+ G |- e1: T1 ~S1      G |- e2: T2 ~S2
+------------------------------------------------------
+ G |- e1 e2: T2 ~{T1=T2->T}\/S1\/S2      (with T fresh)
+
+From the implementation point of view, the typing checking function
+take as input the typing contex G and the expression e, and
+generate the expression'e type T with a typing constraint S.
+
+I leave the following two problems as exercises:
+  1. Prove or disprove that there is only type variable bindings
+     in any typing context G. That is, for any x:T \in G, T must
+     be a type variable, but not Bool or function type.
+  2. Is it possible to modify the above typing rules to make
+     every derivation just returns a type varible? Note that
+     this judgement does not hold for the current typing rules. (Why?)
+
+The remaining task is to find out a solution (if one exists) for
+the generated constraint. Before we present the formal rules, we
+start by studing an example, consider this expression "x y", we
+can write down its typing derivation:
+
+---------------------  -----------------------
+ x:T, y:U |- x: T ~{}   x:T, y:U |- y: U ~{}
+-----------------------------------------------
+ x:T, y:U |- x y: V ~{T=U->V}
+--------------------------------------
+ x:T | \lambda y. x y: U->V ~{T=U->V}
+---------------------------------------------------
+ |- \lambda x.\lambda y. x y: T->U->V ~{T=U->V}
+
+the solution for the the generated constraint {T=U->V} trivially:
+it's also T=U->V, it's worth remarking here is that the solution
+is a list of equations with a type variable at the left-hand side:
+  X1 = T1
+  X2 = T2
+   ...             (1)
+  Xn = Tn
+and each Ti (1<=i<=n) can also contain type variables, just as
+the above example illustrates. These equations will be used next.
+
+Applying the solution to the expression's type, we get the "real"
+type of that expression, even though it may still contain type
+variables.
+
+We can treat the generated constraint as a list, but rather than
+a set, to make the notation easier. We write down a judgment
+form:
+                
+                 |-> cs => f
+
+to denote the solution of the constraint cs is f, recall that f
+is a list of equations as in (1).
+
+The constraint solving rules are based on the induction of the
+form of cs:
+
+-------------------------------------
+ |-> [] => []
+
+   |-> cs => f
+-------------------------------------
+ |-> (Bool, Bool)::cs => f
+
+      X = Y  |-> cs => f
+-------------------------------------(both X and Y are type variables)
+ |-> (X, Y)::cs => f
+
+
+ X\not\in FV(T)     |-> [X|->T]cs => f
+--------------------------------------
+ |-> (X, T)::cs => f o [x|->T]
+
+ X\not\in FV(T)     |-> [X|->T]cs => f
+--------------------------------------
+ |-> (T, X)::cs => f o [x|->T]
+
+ |-> (S1=T1)::(S2=T2)::cs => f
+--------------------------------------
+ |-> (S1->S2, T1->T2)::cs => f
+
+With these rules, we can give an substitution-based unification
+algorithms (Robinson 1971):
+
+unify (C)
+  case C of
+    | [] => return
+    | x::C' =>
+      case x of
+        | X=Y => if X=Y 
+                 then unify (C')
+                 else unify([X|->Y)C') o [X|->Y]
+        | X=S or S=X => if X\not\in FV(S)
+                        then unify ([X|->S)C') o [X|->S]
+                        else fail
+        | S1->S2=T1->T2 => unify (S1=T1::S2=T2::C')
+                                
+Though simple and easy to implement, this algorith suffers from
+the exponential running time. Consider the following example
+constraint set:
+
+  {x2=x1->x1, x3=x2->x2, x4=x3->x3, ..., xn=xn-1->xn-1}
+
+I leave it an exercise to prove that there is 2^{n-1} x1's in the
+term xn, when using Robinson's algorithm above. However, this does
+not mean these rules are intrinsically exponential, but the
+implementation of the algorithm is inappropiate. In deed, there
+are near linear algorithms for this. These algorithms are more
+or less relies on more fancy term representations (say DAG) and
+more efficient data structures (say union-find).
+
+-----------------------------------------
+let-polymorphism
+
+The implicit-typed lambda-calculus is very powerful, given the
+fact that there exists efficient type unification algorithms. 
+However, in practice, the type system may be still overly
+rigid. Consider this example expression below:
+  
+  (\lambda f. (f 3, f true)) (\lambda x.x)
+
+at first glance, this expression is well-formed, and evaluates
+as following:
+
+  (\lambda f. (f 3, f true)) (\lambda x.x)
+  -> ((\lambda x.x) 3, (\lambda x.x) true)
+  -> (3, true)
+
+the final value is a tuple with the first element an integer and
+the second element a boolean. However, if we try to present a
+typing derivation, we may get stuck, consider the first sub-expression,
+we may write this:
+
+-----------------  -------------------    -----------------------------------
+  f:X |- f: X ~{}   f:X |- 3: Nat ~{}       f:X |- f: X    f:X |- true: Bool  
+--------------------------------------    -----------------------------------
+  f:X |- f 3: Y ~{X=Nat->Y}                 f:X |- f true: Z ~{X=Bool->Z}
+-----------------------------------------------------------------------------
+  f:X |- (f 3, f true): Y*Z ~{X=Nat->Y, X=Bool->Z}
+----------------------------------------------------------------
+  |- (\lambda f. (f 3, f true)): X->Y*Z, ~{X=Nat->Y, X=Bool->Z}
+
+as you can see, the result constraint {X=Nat->Y, X=Bool->Z} can
+is not satisfiable. 
+
+The problem here is that we choose an eager way to assign a type
+to a term. Instead, we can prefer to assign type in a lazy way.
+Recall the "let" expression from chapter 11 of TAPL, we can
+rewrite the above term as:
+
+  let f = \lambda x.x in (f 3, f true) end
+
+with the typing rule for this expression looks like: (we write
+G'=G, x:\forall X.X->X)
+         
+                               ------------------------------
+                                 G' |- f: \forall X.X->X ~{}
+                               ------------------------------  -------------------
+                                 G' |- f: Y->Y ~{}               G' |- 3: Nat ~{}                
+-----------------------        ---------------------------------------------------
+  G, x:X |- x:X ~{}              G' |- f 3: Y ~{Y=Nat}                                  ...
+----------------------------   --------------------------------------------------------------
+  G |- \lambda x.x: X->X ~{}     G, f: \forall X.X->X |- (f 3, f true): Y*Z ~{Y=Nat, Z=Bool}
+---------------------------------------------------------------------------------------------
+  G |- let f = \lambda x.x in (f 3, f true): Y*Z ~{Y=Nat, Z=Bool}
+
+Some derivations for "f true" is omitted for space limit, I leave
+it as an exercise.
+
+The key idea here is to generalize the type of the "let"-binding
+expression as much as possible when binding happens, and postpone
+the instantiation to a concreate type until its first use. This
+idea was first explored by Damas and Milner, hence the name
+"DM polymorphism".
+
+We can now present the formal system (extending our previous
+version):
+
+  S -> Bool | X | S->S
+  T -> \forall X.T | S
+  e -> true | false | if(e1, e2, e3)
+     | x | \lambda x.e | e e | let x=e in e end
+
+There is a new syntac form "let", from the point of view of
+its evalutation behaviour, the term is equivalent to:
+
+  let x=e1 in e2 end ==> (\lambda x.e2) e1
+
+however, the typing rule for "let" is different, as we'll discuss
+shortly. 
+
+There are two forms of types: raw types S and normal types T. Raw
+types S consists of two forms Bool and arrow type ->, but no
+universal qualifier \forall. And type T contains universal
+qualifier and is called prenex polymorphism, as the universal
+type variables are always at header positions.
+
+Here are the typing rules:
+
+----------------------------------------------(T-True)
+  G |- true: Bool ~{}
+
+----------------------------------------------(T-False)
+  G |- false: Bool ~{}
+
+  G |- e1: T1 ~S1    G |- e2: T2 ~S2   G |- e3: T3 ~S3
+------------------------------------------------------------(T-If)
+  G |- if(e1, e2, e3): T2 ~{T1=Bool}\/{T2=T3}\/S1\/S2\/S3
+
+  x:\forall X1...Xn.S \in G
+------------------------------------------------------------(T-Var)
+  G |- x: [X1|->Y1, X2|->Y2, ..., Xn|->Yn]S ~{}
+
+  G, x: X |- e: S ~U
+------------------------------------------------------------(T-Abs)
+  G |- \lambda x.e: X->S ~U
+
+  G |- e1: T1 ~U1      G |- e2: T2 ~U2
+------------------------------------------------------------(T-App)
+  G |- e1 e2: Y ~{T1=T2->Y}\/U1\/U2
+
+  G |- e1: S ~U1   G, x:\forall X1...Xn.S |- e2: S' ~U2
+------------------------------------------------------------(T-Let)
+  G |- let x=e1 in e2 end: S' ~U1\/U2
+
+The only way we can generalize a type from S to T is in the T-Let
+rule, where the type S of the expression e1 is generalized to
+\forall X1...Xn.S, where X1 to Xn are free type variables in the
+type S.  Note that we should avoid the pitfall to introduce spurious
+bound variables in the T-Let rule. To be specific, we should only
+introduce bindings for variable that are NOT free in G. I leave
+this as an exercise. And the only way we can instantiate a polymorphic
+type is through the T-Var rule, in which we can choose fresh type
+variable Yi for each bound variable Xi (for 1<=i<=n).
+
+It's worth remarking that, in these rules, expressions can only
+be of raw type S, but not type T. I leave this as an exercise to
+justify this fact.
+
+</pre>
+</body>
+</html>

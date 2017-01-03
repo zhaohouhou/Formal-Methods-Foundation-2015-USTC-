@@ -1,0 +1,359 @@
+<html>
+<body>
+<pre>
+Type Operators
+--------------
+
+In this lecture, we continue to discuss type operators: function
+abstraction and application at type-level. For this, we'll present
+syntax, operational semantics, and typing rules for a language \lambda_\omega
+with type operators. The subtleties of the language \lambda_\omega
+come from two facts: (1) to guarantee the well-formedness of
+type expressions, we must introduce kinding, the types of types; and
+the accompanying kinding rules (just like typing rules for expressions);
+(2) to type check expressions, we must introduce some notion of equivalence
+between type expressions and the equivalence checking rules.
+
+Some languages allow programmers to define type-level operations, say,
+generics in Java or templates in C++). For instance, in Java,
+we can define the following Pair class with two instance variables:
+
+  class Pair&lt;X&gt;{
+    X first;
+    X second;
+  }
+
+roughly, this class can be thought of a type-level function which maps
+any incoming class X to a record, that is:
+
+  Pair = \Lambda X.{first: X, second: X}
+
+note the difference between type-level functions and polymorphic
+functions, which map type arguments to expressions.
+
+To apply the function Pair, we can supply it a type, as in:
+
+  Pair&lt;Integer&gt;
+
+which is a concrete type.
+
+To formalize the type-level operations, we define the following
+language \lambda_\omega:
+
+  v -> true | false | \lambda x:T.e
+  e -> v | if (e, e, e) | e e
+  T -> Bool | X | T->T | \Lambda X.T | T T
+
+It's very close to the syntax of the simply typed \lambda-calculus
+we discussed in chapter 9. But here are some key differenes:
+first, we have introduced more syntax constructs into the type
+definitions of T: besides boolean type "Bool" and function type
+"T->T", we also have type variable "X", the type-level abstraction
+"\Lambda X.T", and type-level application "T T". Thus, we can do
+full-fledged computations on types. Let's write down some sample types:
+
+  (1) \Lambda X.X
+  (2) (\Lambda X.X) Bool
+  (3) Bool Bool
+  (4) (\Lambda X.X) (\Lambda Y.Y)
+  (5) (\Lambda X. \Lambda Y. X (X Y)) (\Lambda X.X) Bool
+
+It's worth remarking that as type expressions T is untyped (it's
+essentially the untyped lambda calculus via a one-to-one correspondence),
+so it exhibits all the problems from the untyped lambda calculus,
+especially, not all type expressions are well-formed (say the expression
+Bool Bool in (3): we can not apply a boolean type to another boolean
+type). For this reason, in the literature, the type expressions are
+often termed constructors. So our next job is to design a "type system"
+for constructors to rule out ill-formed constructors such as (3). However,
+in order to distinguish from the term-level type system, we'll call it
+a kind system.
+
+Here is the definition for possible kind K:
+
+  K -> * | K=>K
+
+where the symbol * stands for the kind for any constructors that can
+inhabited by an expression e; and the second form of kind K1=>K2
+specifies the constructor abstraction from a constructor of kind K1 to
+a constructor of kind K2.
+
+With the syntax of kind, we can give a judgment form
+
+  D |- T::K
+
+to specify the kinding rules on constructors, and these kinding rules
+make use of an kinding environment D which maps a constructor variable
+X to its corresponding kind K:
+
+  D -> . | X::K, D
+
+The kinding rules are syntax-directed:
+
+
+-------------------------------------------------(K-Bool)
+  D |- Bool:: *
+
+  X::K \in D
+-------------------------------------------------(K-TyVar)
+  D |- X:: K
+
+  D |- T1:: *      D |- T2:: *
+-------------------------------------------------(K-Arrow)
+  D |- T1->T2:: *
+
+  D, X::K |- T::K'
+-------------------------------------------------(K-Abs)
+  D |- \Lambda X::K.T:: K=>K'
+
+  D |- T1:: K1=>K2     D |- T2:: K1
+-------------------------------------------------(K-App)
+  D |- T1 T2:: K2
+
+It's worth remarking that, though at first glance these rules are
+similar to the typing rules from simply typed lambda calculus, but
+there are some subtle points. Especially, these rules imply a
+somewhat leveled structure on types. For instance, the above K-Arrow
+rule requires that both the constructors T1 and T2 should be of
+kind *, instead of arbitary kinds, so it rules out constructors
+like this:
+
+  Bool -> \Lambda X::*.X
+
+The dynamic semantics for \lambda_\omega is somewhat standard:
+
+  e1 -> e1'
+--------------------------------------------(E-If)
+  if(e1, e2, e3) -> if (e1', e2, e3)
+
+
+--------------------------------------------(E-IfTrue)
+  if(true, e2, e3) -> e2
+
+
+--------------------------------------------(E-IfFalse)
+  if(false, e2, e3) -> e3
+
+  e1 -> e1'
+--------------------------------------------(E-App1)
+  e1 e2 -> e1' e2
+
+  e2 -> e2'
+--------------------------------------------(E-App2)
+  (\lambda x:T.e) e2 -> (\lambda x:T.e) e2'
+
+  
+--------------------------------------------(E-App3)
+  (\lambda x:T.e) v -> [x|->v]e
+
+The static semantics makes use two environments: the typing
+environment G which maps any term variable x to its type T, and
+the kinding environment D from above.
+
+  G -> . | x: T, G
+
+We present the following typing rules (the first try):
+
+
+-------------------------------------------------------(T-True)
+  G; D |- true: Bool
+
+
+-------------------------------------------------------(T-False)
+  G; D |- false: Bool
+
+  G; D |- e1: Bool   G; D |- e2: T    G; D |- e3: T
+-------------------------------------------------------(T-If)
+  G; D |- if(e1, e2, e3): T
+
+  x:T \in G
+-------------------------------------------------------(T-Var)
+  G; D |- x: T
+
+  D |- T:: *      G, x:T; D |- e: T'
+-------------------------------------------------------(T-Abs)
+  G; D |- \lambda x:T.e: T->T'
+
+  G; D |- e1: T1->T2    G; D |- e2: T1
+-------------------------------------------------------(T-App)
+  G; D |- e1 e2: T2
+
+These rules are also similar to the rules from simply typed lambda calculus
+except for one rule T-Abs. Look at the T-Abs rule for abstraction, as
+the type annotation "T" is supplied explicitly by the programmers, so
+we must check that T is well-kinded, that's why we have the judgment:
+
+  D |- T:: *
+
+we require the constructor T to be of arity 1 (a type). And I leave
+it as exercise to type check this expression:
+
+  \lambda x: (\Lambda X::*. X) Bool. x
+
+However, our first try of typing rules is not satisfying: the rules
+are overly rigid; that is, the typing rules will reject some well-formed
+expressions. To see this, let's consider the following expression:
+
+  (\lambda x:(\Lambda X::*.X)Bool.x) true
+
+which will be rejected by the current typing rules, for that the
+argument type of the \lambda abstraction is:
+
+  (\Lambda X::*.X) Bool
+
+but the actural argument's type is:
+
+  Bool
+
+which are not equivalent as required by the rule T-App.
+However, a close look at these two types reveals that they are
+beta equivalent, that is:
+
+  (\Lambda X::*.X) Bool -> Bool
+
+So it's immediately clear that we should define a much fancier
+notion of "constructor equivalenece". As a first try, we may define
+a \beta-reduction relation on constructors much that what we
+did for the simply typed \lambda-calculus. The key rule looks like:
+
+  (\Lambda X::K.T) T' -> [X|->T']T
+
+And to compare two constructors T1 and T2 for equivalence, we just
+normalize these two constructors by \beta-reducing them and then
+compare the results.
+
+Though simple to understand and implement, the above strategy will
+not work very smoothly. To see this, consider the following two
+constructors T1 and T2:
+
+  T1 = \Lambda X::*.X
+  T2 = \Lambda Y::*.Y
+
+it's easy to see that these two constructors should be considered
+equivalent up to \alpha-equivalence. However, this will force us
+to do more conversion on the constructors, say, to the De-Bruijn
+representation, which is annoying.
+
+Here is another example:
+
+  T1 = (\Lambda X::*. (\Lambda Y::*.Y) X)
+  T2 = \Lambda Y::*.Y
+
+to show that these two constructors are equivalent would require
+some rules like \eta-reduction.
+
+What we need here is an equational theory for constructor equivalence.
+For this purpose, we define a definitional equivalence relation "=~="
+on two two constructors S and T, written as:
+
+  S =~= T
+
+The rules for this relation include:
+
+
+-------------------------------------------------(Eq-Refl)
+  T =~= T
+
+  S =~= T
+-------------------------------------------------(Eq-Sym)
+  T =~= S
+
+  S1 =~= T1      S2 =~= T2
+-------------------------------------------------(Eq-Arrow)
+  S1->S2 =~= T1->T2
+
+  S =~= T
+-------------------------------------------------(Eq-Abs)
+  \Lambda X::K.S =~= \Lambda X::K.T
+
+  S1 =~= T1      S2 =~= T2
+-------------------------------------------------(Eq-App)
+  S1 S2 =~= T1 T2
+
+
+-------------------------------------------------(Eq-Beta)
+  (\Lambda X::K.T) S =~= [X|->S]T
+
+With these equivalence rules on constructors, we can now add
+a new typing rule to check constructor equivalence when necessary:
+
+  G; D |- e: T     T =~= S
+-------------------------------------------------(T-Eq)
+  G; D |- e: S
+
+that is, if we can show an expression e is of type T and the
+type T is definitional equivalent to another type S, then we
+can conclude that the expression e is also of type S.
+
+Next, I will demonstrate the use of these typing rule by typing
+the following expression:
+
+  (\lambda x:(\Lambda X::*.X) Bool. x) true
+
+and for brevity, I use the following abbreviations next:
+
+  lam = (\lambda x:(\Lambda X::*.X) Bool. x))
+  ty  = (\Lambda X::*.X)Bool->(\Lambda X::*.X)Bool
+
+the typing derivation is:
+
+
+---------------
+  X::* |- X::*
+----------------------------  ------------
+  . |- \Lambda X::*.X::*=>*    .|-Bool::*
+------------------------------------------   ----------------------------------------------------
+  . |- (\Lambda X::*.X)Bool::*                x:(\Lambda X::*.X)Bool;. |- x: (\Lambda X::*.X)Bool
+--------------------------------------------------------------------------------------------------
+  .;. |- lam: ty                         ty =~= Bool->Bool        
+--------------------------------------------------------------------------------------------------  ----------------------
+  .;. |- lam: Bool->Bool                                                                               .;. |- true: Bool
+--------------------------------------------------------------------------------------------------------------------------
+  .;. |- (\lambda x:(\Lambda X::*.X) Bool. x) true: Bool
+
+And I leave it an exercise to justify this equivalence relation:
+
+  ty =~= Bool->Bool
+
+
+
+------------------------------------
+Metatheory of \lambda_\omega
+
+Suppose we are now writing a type checker for \lambda_\omage,
+it's not hard to see that the typing rules for
+this language is not syntax-directed, just like the rules for
+subtyping as we discussed, so we need to develop a metatheory
+for it, that is, we should develop a set of algorithmic typing
+rules.
+
+The key idea for the metatheory is that we should remove the
+T-Eq rule (as it's not syntax-directed) and incoporate the
+equivalence checking into various typing rules. For instance,
+the T-If rule and T-App rule should be modified to:
+
+  G; D |- e1: T1    G; D |- e2: T2    G; D |- e3: T2
+  D |- T1 =~= Bool    D |- T2 =~= T3
+----------------------------------------------------------(T-If)
+  G; D |- if(e1, e2, e3): T2
+
+  G; D |- e1: T    G; D |- e2: T'
+  D |- T =~= T1->T2       D |- T1 ~= T'
+----------------------------------------------------------(T-App)
+  G; D |- e1 e2: T2
+
+The definitional equivalence relation is also not syntax-directed,
+so we should also develop meta-theory for definitional equivalence.
+There are two key steps:
+  (1) push down all constructors to arity 1 (i.e., kind *) by \eta-reduction;
+  (2) normalize all arity-1 constructors to some normal form (the
+      so called weak head normal form); and
+  (3) compare, syntactically, the structural equivalence of the normal
+      form.
+
+I leave the rules and algorithms to the programming assignment.
+
+
+</pre>
+</body>
+</html>

@@ -1,0 +1,372 @@
+<html>
+<body>
+<pre>
+Parametric Polymorphism
+-----------------------
+
+In last lecture, we talked about type inference, which makes
+the following code typable:
+
+  (\lambda f. f true) (\lambda x.x)
+
+the essential point here is that we can have type safety for
+free: we do NOT need to write any type annotations at all. The
+underlying type inference (unification engine) can take care
+of this for us. However, this strategy is problematic when we
+consider more fancy expressions, like this one:
+
+  (\lambda f. (f 3, f true)) (\lambda x.x)
+
+You can try this to make sure you understand what will be
+wrong. In last lecture, we introduce the DM type system to 
+cure this, that is, we can re-write the above expression using
+"let":
+
+  let f = \lambda x.x
+  in  (f 3, f true)
+  end
+
+In this lecture, we introduce polymorphism---a much more powerful
+type system than both first-order type unification and DM.
+The main idea is to introduce type variables into the term (just
+like term variables). For instance, we can write the indentity
+function as (along with its type):
+
+  (\Lambda X.\lambda x:X.x): (\forall X.X->X)
+
+which reads: for any type variable X, the term has type
+ 
+  \forall X.X->X
+
+a function type on any type X. It's worth remarking that, at first
+glance, this type is not more powerful than types we've discussed:
+recall that in the DM type system, type schemes are also prenex
+qualified. However, in the following, we'll see that there is a key
+difference between them. As the term is type-qualified, so to apply
+the term, we must first instantiate the type variable, just like:
+
+  (\Lambda X.\lambda x:X.x) [Bool]
+
+which \beta-reduces to
+
+  \lambda x: Bool.x
+
+which is an identity function on type Bool.
+
+With this observation in mind, we can assign types to the first
+expression:
+
+  (\Lambda X.\lambda f:X->X. (f [Nat] 3, f [Bool] true)) [\forall X.X->X] (\Lambda X.\lambda x:X.x)
+
+which evaluates to:
+
+  -> (\lambda f:(\forall X.X->X)->(\forall X.X->X). (f [Nat] 3, f [Bool] true)) (\Lambda X.\lambda x:X.x)
+  -> (((\Lambda X.\lambda x:X.x) [Nat] 3), ((\Lambda X.\lambda x:X.x) [Bool] true))
+  -> ((\lambda x:Nat.x) 3, (\lambda x:Bool.x) true)
+  -> (3, true)
+
+We have two remarks here: 
+  1. unlike our previous formal systems, the type checking
+task for this term is nontrivial, that is, we can not just
+compare two types' structure for equality. But instead, some
+forms of computation on types is required. For instance,
+to check that the term:
+
+  (\lambda f: (\forall X.X->X)...)
+
+can be applied to 
+  
+  (\Lambda Y.\lambda y:Y.y)
+
+we must check that 
+
+  (\forall X.X->X) =~= (\forall Y.Y->Y)
+
+which is nontrivial. We will say more about this in the future.
+  2. There is a key difference between the current system and
+DM, for that functions can take polymorphic arguments.
+
+Now, let's present the formal rule for syntax:
+
+  T -> Bool | X | T->T | \forall X.T 
+  v -> true | false | \lambda x:T.e | \Lambda X.e
+  e -> true | false | if (e1, e2, e3)
+     | x | e e | e [T]
+
+i.e., we have two more types: the type variable X and the
+quantified type \forall X.T. We have also two new expressions:
+the type variable abstraction \Lambda X.e and type application
+e [T]. The type abstraction \Lambda X.e is value demonstrates
+fact that we can not evaluate the boby e until the outer type
+variable X is instantiated. So that's where the term parametric
+polymorphsm comes. And historicaly, this system is termed system
+F, which is invented by logician Girard and computer scientist
+Reynolds.
+
+As the term in this system is explicitly typed, we must have some
+mechanism to record the free type variable. Consider the following
+typing derivation:
+
+------------   -------------
+  x:X \in G     FV(X) \in D
+----------------------------
+  X; x:X |- x: X
+-------------------------------
+  X |- \lambda x:X.x
+-------------------------------------------------
+  |- \Lambda X.\lambda x:X.x
+
+it's immedidately clear that we must maintain two different
+environment D and G to record type variable bindings and variable
+bindings:
+
+  D -> . | X, D
+  G -> . | x:T, G
+
+with these notations, the typing rules are:
+
+
+----------------------------------------(T-True)
+ D; G |- true: Bool
+
+----------------------------------------(T-False)
+ D; G |- false: Bool
+
+ D; G |- e1: Bool    G |- e2: T    G |- e3: T
+-------------------------------------------------(T-If)
+ D; G |- if (e1, e2, e3): T
+
+ x:T \in G          FV(T) \in D
+-------------------------------------------------(T-Var)
+ D; G |- x: T
+
+ D; G, x:T |- e: T'
+-------------------------------------------------(T-Abs)
+ D; G |- \lambda x:T.e: T->T'
+
+ D; G |- e1: T -> T'      D; G |- e2: T
+-------------------------------------------------(T-App)
+ D; G |- e1 e2: T'
+
+ D, X; G |- e: T        where X\not\in dom(D)
+-------------------------------------------------(T-TAbs)
+ D; G |- \Lambda X.e: \forall X.T
+
+ D; G |- e: \forall X.T
+-------------------------------------------------(T-TApp)
+ D; G |- e [T']: [X|->T']T
+
+The type variable environment D is just used to keep track
+of the scope of type variables, but later in this course,
+we'll extend it to keep track of other useful information
+on type variables, such as kinding or bound.
+
+The evalutation rules must take account of the type variable
+abstraction and application. We define the operational
+semantics rules in term of the evaluation context E:
+
+  E -> [] | if (E, e2, e3) | E e2 | v E | E [T]
+
+intuitively, an evaluation context specifies where the
+evaluation should proceed. And the above evalution context
+specifies a left-to-right call-by-value evaluation strategy.
+Also note that we don't have an evaluation context like:
+
+  v [[]]
+
+that is, we don't have any nontrivial computation on types---a
+type is always an atom.
+
+We can present the operational semantics rules:
+
+------------------------------------(E-IfTrue)
+  if(true, e2, e3) -> e2
+
+------------------------------------(E-IfFalse)
+  if(false, e2, e3) -> e3
+
+------------------------------------(E-Abs)
+  (\lambda x.e1) v2 -> [x|->v2]e1
+
+------------------------------------(E-TAabs)
+  (\Lambda X.e) T -> [X|->T]e
+
+  e -> e'
+------------------------------------(E-Context)
+  E[e] -> E[e']
+
+
+
+--------------------------------
+With parametric polymorphism, we can give type to some untyped
+term in a natural way. Recall the definition for untyped booleans:
+
+  tru = \lambda t.\lambda f. t
+  fls = \lambda t.\lambda f. f
+
+we can adding type annotations to them as:
+
+  tru = \Lambda X.\lambda t:X.\lambda f:X. t
+  fls = \Lambda X.\lambda t:X.\lambda f:X. f
+
+with typing relations:
+
+  tru: \forall X.X->X->X
+  fls: \forall X.X->X->X
+
+we can write CBool = \forall X.X->X->X.
+
+What we are actually doing here is that we are encoding the
+boolean data structures in the system F. By the term "encoding",
+we mean that we can encode the data structure's type using types
+in system F, and encode the operations using terms in system F.
+Here is more examples for other boolean operations, say "not":
+
+  not = \lambda b: CBool.\Lambda X.\lambda t:X.\lambda f:X. b [X] f t
+
+I leave it an exercise to justify the following two equalitiesy:
+
+  not tru = fls,
+  not fls = tru.
+
+We can represent natural numbers in a similar way. Recall the
+representation in untyped lambda calculus:
+
+  c0 = \lambda s.\lambda z. z
+  c1 = \lambda s.\lambda z. s z
+  c2 = \lambda s.\lambda z. s (s z)
+  ...
+
+and we can annotate types as:
+
+  c0 = \Lambda X.\lambda s:X->X.\lambda z:X. z
+  c1 = \Lambda X.\lambda s:X->X.\lambda z:X. s z
+  c2 = \Lambda X.\lambda s:X->X.\lambda z:X. s (s z)
+  ...
+
+thus we have the following CNat:
+
+  CNat = \forall X.(X->X)->X->X
+
+operations on natural numbers can be represented in a similar
+way:
+
+  succ = \forall n: CNat. \Lambda X.\lambda s:X->X.\lambda z:X. s (n [X] s z)
+
+We can encode more data types, besides booleans and natural
+numbers. For instance, consider pairs:
+
+  pair = \lambda f.\lambda s.\lambda b. b f s
+  fst  = \lambda p. p (\lambda t.\lambda f. t)
+  snd  = \lambda p. p (\lambda t.\lambda f. f)
+
+with this explicitly-typed expression in system F:
+
+  pair = \Lambda X.\Lambda Y.\lambda f:X.\lambda s:Y.\Lambda T.\lambda b:(X->Y->T). b f s
+
+with the type:
+
+  CPair = \forall X.\forall Y.X->Y->(\forall T.((X->Y->T)->T))
+
+I leave other operations, say "fst" and "snd", as exercises.
+
+To summarize, the key idea to encode data structures in system F
+is to encode data structure actively, that is, the data
+structures are equipped with operations to operate on themselves.
+In this sense, such kind of data structures can be treated
+objects.
+
+In my opinion, I dislike full-typed system F but love the
+DM-style type inference (as found in SML), for that it will
+soon be annoying to write a lot of type annotations.
+Unfortunately, this is the common case in today's Java code,
+for instance, to create a list of hash of string to integers, you
+will have to write:
+
+  LinkedList&lt;HashMap&lt;String, Integer>> ds = new LinkedList&lt;HashMap&lt;String, Integer>>();
+
+You may wonder that can we just write:
+
+  ds = new ();
+
+and let the type checker infer and fill in the missing types?
+Unfortunately, the answer is NO for the system F, because type
+inference for system F is undecidable. You can refer to section
+23.7 of the text for more information.
+
+
+----------------------------------------
+How are polymorphic types implemented? Generally speaking, there
+are at least 3 approaches:
+  1. Type passing. Pass polymorphic types to runtime. This 
+     is just what the operational rules for system F specifies.
+  2. Type erasure. Erasure all polymorphic types after type
+     checking, and thus leave only the untyped code.
+  3. Static monomorphinization. At type-checking time, polymorphic
+     types will be instantiated and converted into monomorphic
+     types.
+
+In the type passing strategy, after type checking, the type
+information will be kept and propagated until runtime. This
+is exactly what the operational rules for system F specifies.
+Consider the rule E-TAbs:
+
+  (\Lambda X.e)[T] -> [X|->T]e
+
+it involves type application and calculation at runtime. Nevertheless
+to say, this approach requires that the underlying runtime or
+VM supports polymorphism. M$'s C# compiler uses this approach.
+
+In the type erasure strategy, the type information is erased
+after type checking. In term of the system F, we can define
+an erasure function from typed term to untyped term as follows:
+
+  E(true)            = true
+  E(false)           = false
+  E(if(e1, e2, e3)   = if(E(e1), E(e2), E(e3))
+  E(x)               = x
+  E(\lambda x.T.e)   = \lambda x.E(e)
+  E(e1 e2)           = E(e1) E(e2)
+  E(\Lambda X.e)     = E(e)
+  E(e [T])           = E(e)
+
+this is pretty straitforward to do. However, when we come to
+more language features, say reference or exception, we would
+be careful not to change the program semantics. See the text
+for a more fancy type erasure translation. Java uses this
+approach (so you know that JVM is monomorphic).
+
+For the type monomorphization strategy. Polymorphic types
+are instantiated statically during type checking. And polymorphic
+code are duplicated to monomorphic ones. For instance, consider
+this code:
+
+  let f = \Lambda X.\lambda x:X.x
+  in  (f [Bool] true, f [Nat] 3)
+  end
+
+can be monomorphinised to:
+
+  let f1 = \lambda x:Bool.x
+      f2 = \lambda x:Nat.x
+  in  (f1 true, f2 3)
+  end
+
+you may wonder why we don't just erase the type information, and
+just convert it to:
+
+  let f = \lambda x.x
+  in  (f true, f 3)
+  end
+
+the problem with this is that we have to use a uniform representation
+for all possible forms of arguments. In practice, this means that
+we'll have to box all data, which may incur unnecessary runtime
+overhead. Of course, the protential problem with the monomorphic
+code is that it may lead to code explosion---but it seldomly
+observed in practical code. Compilers for C++ use this approach.
+
+
+</pre>
+</body>
+</html>

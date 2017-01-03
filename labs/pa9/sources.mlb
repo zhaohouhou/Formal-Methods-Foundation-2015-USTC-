@@ -1,0 +1,10 @@
+local
+        $(SML_LIB)/basis/basis.mlb
+        
+        lambda-omega.sig
+        lambda-omega.sml
+in              
+        signature LAMBDA_OMEGA
+        structure LambdaOmega
+end
+        

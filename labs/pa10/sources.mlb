@@ -1,0 +1,10 @@
+local
+        $(SML_LIB)/basis/basis.mlb
+        
+        f-omega.sig
+        f-omega.sml
+in              
+        signature F_OMEGA
+        structure FOmega
+end
+        

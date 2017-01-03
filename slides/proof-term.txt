@@ -1,0 +1,31 @@
+3.5 how to add other types? say list, or trees
+  three general approaches:
+    recursive types or inductive type
+    extra rules
+    church encodings
+
+next, discuss natural numbers:
+
+---------------------
+ nat type
+
+--------------------
+ 0 nat
+
+ n nat
+--------------------
+ S(n) nat
+
+n nat     t0 \tau    x nat    ts \tau
+---------------------------------------
+ case n of 0 => t0 | S(x) => ts  \tau
+
+pred = \x: nat. case x of 0 => 0 | S (y) => y
+
+rec_g x. case x
+           of 0 => t0
+            | S y => ts
+            
+where g may occur in ts.
+
+          
